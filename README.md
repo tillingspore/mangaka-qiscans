@@ -1,9 +1,8 @@
 # mangaka-qiscans
-qiscanmanga.org content wrapper to mangaka project
+Wrapper de conteúdo do [Qi Scans](https://qiscansmanga.org/) para o Mangaka.
 
 Levantamento inicial para adicionar Qi Scans como fonte do Mangaka:
 [mapeamento técnico](docs/qiscans-discovery.md).
 
-O endereço original acima não resolveu no DNS durante a investigação.
-O levantamento usa `https://qiscansmanga.org` como candidato, ainda sujeito
-à confirmação de que é o site pretendido. O wrapper ainda não foi implementado.
+Domínio confirmado: `https://qiscansmanga.org`.
+O wrapper ainda não foi implementado.

@@ -9,7 +9,7 @@ proposta de contrato; não representa uma integração implementada.
 `qiscanmanga.org`, registrado originalmente no README, falhou na resolução
 DNS, inclusive fora do sandbox. A busca encontrou
 [qiscansmanga.org](https://qiscansmanga.org/), que se apresenta como Qi Scans.
-A confirmação pelo usuário de que esse é o site pretendido está pendente.
+O usuário confirmou que `https://qiscansmanga.org` é o site pretendido.
 Não foi estabelecida identidade com outros domínios ou grupos de mesmo nome.
 
 Consultas HTTP GET públicas recuperaram seis páginas HTML sem autenticação:
@@ -108,7 +108,7 @@ generalizar `lang=en` para toda a fonte.
 
 ## Validação restante
 
-Antes de implementar: confirmar domínio pretendido. Antes de integrar:
+Domínio pretendido confirmado pelo usuário. Antes de integrar:
 validar filtros, busca paginada, outra obra, idioma e imagem via GET; definir
 IDs, estratégia de paginação e roteamento do serviço. Criar fixtures pequenas
 para casos de capítulos fracionários, novels, conteúdo protegido, falha de
