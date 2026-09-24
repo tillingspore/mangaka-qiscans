@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mangaka-qiscans"
+version = "0.1.0"
+description = "Qi Scans content adapter for Mangaka"
+requires-python = ">=3.11"
+dependencies = [
+  "Flask==3.1.0",
+  "beautifulsoup4==4.13.5",
+  "requests==2.32.5",
+  "gunicorn==23.0.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest==8.3.5"]
+
+[tool.setuptools.packages.find]
+include = ["qiscans*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
