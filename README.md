@@ -39,7 +39,7 @@ Todas as respostas JSON incluem `source: "qiscans"`. O parâmetro opcional
 | GET | Parâmetros / resposta |
 | --- | --- |
 | `/api/health` | Saúde do processo; não consulta o site |
-| `/api/manga/catalog` | `page`, `tag`, `q`; `results`, `total: null`, `has_next` |
+| `/api/manga/catalog` | `page`, `tag`, `q`; `results`, `total`, `total_pages`, `page`, `page_size`, `has_next` |
 | `/api/manga/search` | `q`, `page`, `tag`; mesmo formato do catálogo |
 | `/api/manga/tags` | `tags` com `id` numérico em string e `name` |
 | `/api/manga/{id}` | Título, sinopse, capa, autor, ano, status e gêneros |
@@ -50,20 +50,25 @@ Todas as respostas JSON incluem `source: "qiscans"`. O parâmetro opcional
 IDs são os slugs dos caminhos públicos, sem o domínio. Exemplo: obra `kingdom`
 e capítulo `kingdom-chapter-889`. A API verifica que o capítulo pertence à obra.
 O catálogo usa a ordenação por atualização do site. `page` aceita 1–500;
-`q` aceita até 120 caracteres. A paginação acompanha a fonte, sem simular blocos
-de 20 itens: clientes devem usar `has_next`, mesmo após uma página pequena ou vazia.
-`limit` não altera a quantidade de itens por página.
+`q` aceita até 120 caracteres. O wrapper percorre a listagem da fonte, remove duplicatas e novels e serve
+páginas de 20 obras. `total` conta as obras disponíveis no filtro atual;
+`total_pages` informa a quantidade de páginas do wrapper. `page` retorna a
+página efetiva, limitada à última existente. Uma listagem vazia retorna total
+zero e uma página vazia. `limit` não altera o tamanho das páginas.
 
-Novels identificadas nos cards são excluídas. Busca com gênero valida cada
-resultado contra os metadados da obra, pois a busca do site pode ignorar
-`genre[]`; essa combinação pode ser mais lenta e produzir páginas vazias com
-próxima página. Os capítulos são identificados como inglês (`en`) nesta fonte.
+Novels identificadas nos cards são excluídas. Busca com gênero cruza os IDs dos resultados da busca com os IDs do catálogo
+filtrado, pois a busca do site pode ignorar `genre[]`. A filtragem acontece
+antes da contagem e da paginação, evitando páginas intermediárias vazias. Os capítulos são identificados como
+inglês (`en`) nesta fonte.
 Isso não oferece tradução automática, nem garante capítulos antigos ausentes
 na listagem do site.
 
 ## Cache e falhas
 
-Catálogo, buscas e obras ficam em cache por 15 minutos; páginas do leitor por
+Catálogo e buscas usam uma listagem completa em cache por filtro, compartilhada
+entre todas as páginas. A primeira consulta pode demorar mais porque percorre
+as páginas do site; as seguintes reutilizam a contagem por 15 minutos. Uma
+falha na coleta não publica contagem parcial. Obras ficam em cache por 15 minutos; páginas do leitor por
 10 minutos; gêneros por 24 horas. O cache mantém até 256 entradas em memória.
 Use um processo com múltiplas threads para compartilhar cache, consultas
 simultâneas e pausa após falhas. O Mangaka mantém também seu cache Redis.

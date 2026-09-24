@@ -23,6 +23,8 @@ def main():
 
     catalog = get('/api/manga/catalog')
     following = get('/api/manga/catalog', page=2)
+    assert catalog['total'] == following['total']
+    assert catalog['total_pages'] == max(1, (catalog['total'] + 19) // 20)
     tags = get('/api/manga/tags')['tags']
     search = get('/api/manga/search', q='kingdom')
     identifier = next(r['id'] for r in search['results'] if r['id'] == 'kingdom')
@@ -45,7 +47,8 @@ def main():
     filtered_info = get('/api/manga/' + filtered['results'][0]['id'])
     if sports['id'] not in {t['id'] for t in filtered_info['tagLinks']}:
         raise RuntimeError('O catálogo não respeitou o filtro por gênero.')
-    print(json.dumps({'catalog_items': len(catalog['results']), 'page_2_items': len(following['results']),
+    print(json.dumps({'catalog_items': len(catalog['results']), 'total': catalog['total'],
+                      'total_pages': catalog['total_pages'], 'page_2_items': len(following['results']),
                       'tags': len(tags), 'search_results': len(search['results']),
                       'title': details['title'], 'second_title': second['title'],
                       'search_page_2_items': len(broad_next['results']),

@@ -15,7 +15,7 @@ CARD = '''<div class="bsx"><a href="/manga/story/"><div class="tt">Story &amp; F
 <img src="https://i0.wp.com/qiscansmanga.org/cover.jpg"></a></div>'''
 CATALOG = f'''{TAGS}<div class="postbody"><div class="listupd">{CARD}
 <div class="bsx"><span class="novelabel">Novel</span></div></div>
-<div class="pagination"><a class="next" href="/manga/?page=2">Next</a></div></div>
+</div>
 <aside><div class="listupd"><div class="bsx">Not a result</div></div></aside>'''
 SERIES = '''<h1 class="entry-title">Story &amp; Friends</h1>
 <div class="info-left"><div class="thumb"><img src="https://i1.wp.com/qiscansmanga.org/cover.jpg"></div></div>
@@ -51,7 +51,11 @@ class FakeTransport:
         self.calls.append(url)
         if image:
             return b"image-bytes", "image/jpeg"
-        return self.documents[urlsplit(url).path].encode(), "text/html"
+        parsed = urlsplit(url)
+        if parse_qs(parsed.query).get('genre[]') == ['4']:
+            return b'<div class="postbody"><div class="listupd">Not Found</div></div>', 'text/html'
+        key = parsed.path + '?' + parsed.query
+        return self.documents.get(key, self.documents.get(parsed.path, '')).encode(), "text/html"
 
 
 @pytest.fixture(autouse=True)
@@ -70,9 +74,9 @@ def test_catalog_excludes_novels_sidebar_and_has_explicit_pagination(service):
     result = service.listing()
     assert [r['id'] for r in result['results']] == ['story']
     assert result['results'][0]['title'] == 'Story & Friends'
-    assert result['total'] is None and result['has_next'] is True
-    service.listing(2)
-    assert parse_qs(urlsplit(service.transport.calls[-1]).query)['page'] == ['2']
+    assert result['total'] == 1 and result['total_pages'] == 1
+    assert result['has_next'] is False
+    assert service.listing(2)['page'] == 1
 
 
 def test_catalog_cache_isolated_from_callers(service):
@@ -81,10 +85,63 @@ def test_catalog_cache_isolated_from_callers(service):
     assert len(service.transport.calls) == 1
 
 
+def catalog_page(start, stop, next_url=None):
+    cards = ''.join(CARD.replace('/story/', f'/story-{i}/') for i in range(start, stop))
+    next_link = f'<div class="pagination"><a class="next" href="{next_url}">Next</a></div>' if next_url else ''
+    return f'<div class="postbody"><div class="listupd">{cards}</div>{next_link}</div>'
+
+
+def test_exact_count_and_local_pages_share_one_snapshot(service):
+    # Duplicate across upstream pages and a novel must not inflate the total.
+    first = catalog_page(0, 30, '/manga/?page=2')
+    first = first.replace('<div class="listupd">',
+                          '<div class="listupd"><div class="bsx"><span class="novelabel">Novel</span></div>')
+    service.transport.documents['/manga/'] = first
+    service.transport.documents['/manga/?page=2'] = catalog_page(29, 42)
+    result = service.listing()
+    assert (result['total'], result['total_pages'], result['page_size']) == (42, 3, 20)
+    assert len(result['results']) == 20 and result['has_next']
+    second = service.listing(2)
+    last = service.listing(500)
+    assert last['page'] == 3 and len(last['results']) == 2 and not last['has_next']
+    ids = [r['id'] for page in (result, second, last) for r in page['results']]
+    assert len(ids) == len(set(ids)) == 42
+    assert len(service.transport.calls) == 2
+
+
+def test_search_counts_all_upstream_pages(service):
+    service.transport.documents['/'] = catalog_page(0, 10, '/page/2/?s=story')
+    service.transport.documents['/page/2/'] = catalog_page(10, 23)
+    first = service.listing(query='story')
+    second = service.listing(2, query='story')
+    assert first['total'] == second['total'] == 23
+    assert first['total_pages'] == 2 and len(second['results']) == 3
+    assert len(service.transport.calls) == 2
+    assert urlsplit(service.transport.calls[-1]).path == '/page/2/'
+
+
+def test_failed_scan_does_not_cache_partial_total(service):
+    service.transport.documents['/manga/'] = catalog_page(0, 30, '/manga/?page=2')
+    service.transport.documents['/manga/?page=2'] = '<html>Upstream error</html>'
+    with pytest.raises(SourceError):
+        service.listing()
+    service.transport.documents['/manga/?page=2'] = catalog_page(30, 31)
+    assert service.listing()['total'] == 31
+    assert len(service.transport.calls) == 4
+
+
+@pytest.mark.parametrize('second', [catalog_page(0, 30), catalog_page(30, 31, '/manga/?page=2')])
+def test_repeated_page_or_link_fails_instead_of_inventing_total(service, second):
+    service.transport.documents['/manga/'] = catalog_page(0, 30, '/manga/?page=2')
+    service.transport.documents['/manga/?page=2'] = second
+    with pytest.raises(SourceError, match='repetiu'):
+        service.listing()
+
+
 def test_search_pagination_and_query_encoding(service):
     service.listing(2, query='Story & Friends')
     url = urlsplit(service.transport.calls[-1])
-    assert url.path == '/page/2/'
+    assert url.path == '/'
     assert parse_qs(url.query)['s'] == ['Story & Friends']
 
 
@@ -103,7 +160,8 @@ def test_genre_forwarded_to_catalog(service):
 
 def test_empty_results_distinct_from_blocked_or_broken_html(service):
     service.transport.documents['/'] = '<div class="postbody"><div class="listupd"><center><h3>Not Found</h3></center></div></div>'
-    assert service.listing(query='absent')['results'] == []
+    empty = service.listing(query='absent')
+    assert empty['results'] == [] and empty['total'] == 0 and empty['total_pages'] == 1
     service.transport.documents['/'] = '<html>Please verify you are human</html>'
     with pytest.raises(SourceError):
         service.listing(query='blocked')

@@ -166,48 +166,82 @@ class Qiscans:
             return tags
         return self.cached("tags", load, 86400)
 
+    page_size = 20
+
     def listing(self, page=1, query=None, tag=None):
-        key = ("listing", page, query, tag)
+        records = self.listing_records(query, tag)
+        total = len(records)
+        total_pages = max(1, (total + self.page_size - 1) // self.page_size)
+        page = min(max(1, page), total_pages)
+        offset = (page - 1) * self.page_size
+        return {"results": records[offset:offset + self.page_size], "total": total,
+                "total_pages": total_pages, "page": page, "page_size": self.page_size,
+                "has_next": page < total_pages}
+
+    def listing_records(self, query=None, tag=None):
         def load():
             if tag and tag not in {t["id"] for t in self.tags()}:
                 raise SourceError("Gênero não encontrado.", 404)
-            if query:
-                path = "/" if page == 1 else f"/page/{page}/"
-                params = {"s": query}
-            else:
-                path, params = "/manga/", {"page": page, "order": "update"}
-                if tag:
-                    params["genre[]"] = tag
-            doc = self.document(path, params)
-            container = doc.select_one(".postbody .listupd")
-            if container is None:
-                raise SourceError("A estrutura do catálogo mudou ou a fonte bloqueou a consulta.")
-            cards = container.select(".bsx")
-            if not cards and self.text(container).lower() != "not found":
-                raise SourceError("A fonte retornou um catálogo vazio sem confirmação.")
-            results, seen = [], set()
-            for card in cards:
-                if card.select_one(".novelabel"):
-                    continue
-                link = card.select_one('a[href*="/manga/"]')
-                title = self.text(card.select_one(".tt"))
-                if not link or not title:
-                    raise SourceError("A fonte retornou um item de catálogo incompleto.")
-                identifier = remote_id(link["href"])
-                if identifier in seen:
-                    continue
-                seen.add(identifier)
-                # WordPress search may ignore genre[]; enforce combined filters.
-                if query and tag and tag not in {t["id"] for t in self.info(identifier)["tagLinks"]}:
-                    continue
-                image = card.select_one("img")
-                cover = self.image_url(image)
-                results.append({"id": identifier, "title": title, "coverUrl": cover})
-            next_link = doc.select_one(".postbody .pagination a.next")
-            if next_link:
-                checked_url(urljoin(BASE_URL, next_link.get("href", "")))
-            return {"results": results, "total": None, "has_next": next_link is not None}
-        return self.cached(key, load)
+            # Intersect with the filtered catalog rather than fetching details
+            # for every search result. WordPress search may ignore genre[].
+            allowed = {r["id"] for r in self.listing_records(tag=tag)} if query and tag else None
+            records, seen, visited = [], set(), set()
+            path = "/" if query else "/manga/"
+            params = {"s": query} if query else {"order": "update"}
+            if tag and not query:
+                params["genre[]"] = tag
+            url = BASE_URL + path + "?" + urlencode(params)
+            for _ in range(500):
+                if url in visited:
+                    raise SourceError("A fonte repetiu um link de paginação.")
+                visited.add(url)
+                batch, next_url = self.listing_page(url)
+                fresh = [r for r in batch if r["id"] not in seen]
+                if batch and not fresh:
+                    raise SourceError("A fonte repetiu uma página do catálogo.")
+                for item in fresh:
+                    seen.add(item["id"])
+                    if allowed is None or item["id"] in allowed:
+                        records.append(item)
+                if next_url is None:
+                    return records
+                url = next_url
+            raise SourceError("Não foi possível concluir a contagem do catálogo.")
+        # Cache one complete snapshot per filter, shared by every local page.
+        # A failed scan never publishes a partial count or partial list.
+        return self.cached(("listing_records", query, tag), load)
+
+    def listing_page(self, url):
+        raw, _ = self.transport.get(checked_url(url))
+        doc = BeautifulSoup(raw, "html.parser")
+        container = doc.select_one(".postbody .listupd")
+        if container is None:
+            raise SourceError("A estrutura do catálogo mudou ou a fonte bloqueou a consulta.")
+        cards = container.select(".bsx")
+        if not cards and self.text(container).lower() != "not found":
+            raise SourceError("A fonte retornou um catálogo vazio sem confirmação.")
+        results, seen = [], set()
+        for card in cards:
+            if card.select_one(".novelabel"):
+                continue
+            link = card.select_one('a[href*="/manga/"]')
+            title = self.text(card.select_one(".tt"))
+            if not link or not title:
+                raise SourceError("A fonte retornou um item de catálogo incompleto.")
+            identifier = remote_id(link["href"])
+            if identifier in seen:
+                continue
+            seen.add(identifier)
+            results.append({"id": identifier, "title": title,
+                            "coverUrl": self.image_url(card.select_one("img"))})
+        next_link = doc.select_one(".postbody .pagination a.next")
+        next_url = None
+        if next_link:
+            href = next_link.get("href")
+            if not href:
+                raise SourceError("A fonte retornou paginação sem endereço.")
+            next_url = checked_url(urljoin(url, href))
+        return results, next_url
 
     @staticmethod
     def image_url(node):
