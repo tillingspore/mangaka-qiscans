@@ -2,7 +2,9 @@ FROM python:3.13-slim AS base
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY pyproject.toml ./
-COPY qiscans ./qiscans
+COPY --chmod=755 qiscans ./qiscans
+RUN find /app/qiscans -type f -exec chmod 644 {} \; \
+    && find /app/qiscans -type d -exec chmod 755 {} \;
 RUN pip install --no-cache-dir .
 
 FROM base AS test
